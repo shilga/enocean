@@ -246,12 +246,53 @@ class Packet(object):
         packet.parse_eep(rorg_func, rorg_type, direction, command)
         return packet
 
+    @staticmethod
+    def create_msc(packet_type,
+               destination=None,
+               sender=None,
+               data=None):
+        
+        if packet_type != PACKET.RADIO_ERP1:
+            # At least for now, only support PACKET.RADIO_ERP1.
+            raise ValueError('Packet type not supported by this function.')
+
+        if destination is None:
+            Packet.logger.warning('Replacing destination with broadcast address.')
+            destination = [0xFF, 0xFF, 0xFF, 0xFF]
+
+        # TODO: Should use the correct Base ID as default.
+        #       Might want to change the sender to be an offset from the actual address?
+        if sender is None:
+            Packet.logger.warning('Replacing sender with default address.')
+            sender = [0xDE, 0xAD, 0xBE, 0xEF]
+
+        if not isinstance(destination, list) or len(destination) != 4:
+            raise ValueError('Destination must a list containing 4 (numeric) values.')
+
+        if not isinstance(sender, list) or len(sender) != 4:
+            raise ValueError('Sender must a list containing 4 (numeric) values.')
+
+        packet = Packet(packet_type, data=[], optional=[])
+
+        packet.data = [RORG.MSC]
+        packet.data.extend(data)
+        packet.data.extend(sender)
+        packet.data.extend([0]) # status
+        # Always use sub-telegram 3, maximum dbm (as per spec, when sending),
+        # and no security (security not supported as per EnOcean Serial Protocol).
+        packet.optional = [3] + destination + [0xFF] + [0]
+
+        packet = Packet.parse_msg(packet.build())[2]
+        packet.rorg = RORG.MSC
+
+        return packet
+
     def parse(self):
         ''' Parse data from Packet '''
         # Parse status from messages
         if self.rorg in [RORG.RPS, RORG.BS1, RORG.BS4]:
             self.status = self.data[-1]
-        if self.rorg == RORG.VLD:
+        if self.rorg in [RORG.VLD, RORG.MSC]:
             self.status = self.optional[-1]
 
         if self.rorg in [RORG.RPS, RORG.BS1, RORG.BS4]:
@@ -308,6 +349,11 @@ class RadioPacket(Packet):
                destination=None, sender=None, learn=False, **kwargs):
         return Packet.create(PACKET.RADIO_ERP1, rorg, rorg_func, rorg_type,
                              direction, command, destination, sender, learn, **kwargs)
+
+    @staticmethod
+    def create_msc(
+               destination=None, sender=None, data=None):
+        return Packet.create_msc(PACKET.RADIO_ERP1, destination, sender, data)
 
     @property
     def sender_int(self):
